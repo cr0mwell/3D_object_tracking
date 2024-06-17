@@ -1,50 +1,15 @@
-LiDAR TTC frame by frame:
+The following functionality has been implemented:
+* matchBoundingBoxes function was implemented in camFusion.cpp that loops through the keypoint matches in previous and current frames and calculates the number of correspondent keypoints in the boundig boxes.
+Then it maps the bounding boxes that have the max number of matched keypoints.
+* LiDAR TTC computation was implemented in computeTTCLidar function. First it filters the outliers using Z-score method (sequentially by the median and the mean with 3*std distance check). Next TTC is calculated using the closest keypoint to the object in the current and in the previous frames.
+* clusterKptMatchesWithROI function associates a given bounding box with the keypoints it contains. It also filters the outliers using Z-score method (sequentially by the median and the mean with 3*std distance check).
+* Camera-based TTC is calculated in the computeTTCCamera function. First the matching keypoints are collected from the current and the previous frames. Next the keypoints are filtered using z-score method applied to the x,y keypoint coordinates. After that a mean of the keypoint distance ratios is calculated to evaluate the TTC. These distances are filtered by the threshold 20.
 
-1	12.97
-2	12.26
-3	13.92
-4	7.12
-5	16.25
-6	12.42
-7	34.34
-8	9.34
-9	18.13
-10	18.03
-11	14.99
-12	10.85
-13	9.22
-14	10.97
-15	8.09
-16	8.81
-17	9.99
-18	8.31
+Conclusion regarding LiDAR processing:
+according to the tests, FPs were filtered quite well (using Z-score median/mean filtering), therefore they couldn't affect the calculation results. Checks with bird-view frames confirm that the distance was measured precisely for all of them. Huge frame-to-frame estimation changes are related to the invalid velocity model that has been chosen. Neither Ego vehicle nor preceding vehicle's speed is constant. These speed changes in short frame rate intervals cause TTC value spikes.
 
-CONCLUSION: According to my tests, FPs were filtered quite well (using Z-score filtering), therefore they couldn't affect the calculation results. I checked the bird-view frames and the distance was measured precisely for all of them. As for the huge frame-to-frame estimation changes, first of all I assume that are caused by the assumption that the speed of the preceding vehicle is constant in time, which isn't true. Ego vehicle speed isn't constant either. These speed changes in short frame rate intervals cause TTC value spikes.
+Conclusion regarding camera processing:
+let's not forget that the camera is not good at all at distance estimation. As distance is the only variable in the formula, we shouldn't expect a good results in TTC estimation, especially when we chose an invalid velocity model (constant speed). Another factor that affects the accuracy is detector-descriptor combination that sometimes provides a lot FPs. After a several filtering procedures there are few valid matches left (5-20) which can't give a good TTC estimation performance. Not mentioning some detectors, like Harris or ORB that detect 200-500 points in general for the image which is usually not sufficient to track the preceding vehicle.
+The results are not very good therefore. FAST/BRIEF, FAST/SIFT, AKAZE/AKAZE detector/descriptor pairs showed the best accuracy overall. Still the mean difference in TTC estimation with LiDAR is about 2,5 sec. We could enhance the accuracy if another velocity model was chosen.
 
-Camera TTC frame by frame
-detector:	AKAZE	ShiTomasi	FAST	SIFT	SURF
-descriptor:	AKAZE	ORB		ORB	SIFT	SURF
-1		13.29	12.00		10.36	11.17	12.82
-2		15.29	10.03		13.22	12.10	14.31
-3		12.42	11.11		14.03	12.87	13.61
-4		15.48	12.46		16.08	14.88	14.42
-5		16.22	11.41		12.26	11.81	14.30
-6		13.39	11.96		11.07	12.38	14.93
-7		16.28	14.09		14.13	13.01	13.57
-8		12.77	13.91		11.90	11.55	12.76
-9		14.62	10.39		11.92	11.50	10.72
-10		12.60	12.51		10.83	9.88	11.06
-11		12.81	10.21		11.66	10.08	10.71
-12		11.74	8.11		10.71	9.80	9.90
-13		12.20	9.81		9.72	8.48	9.84
-14		15.53	8.49		9.97	9.71	10.59
-15		12.43	8.52		8.08	9.14	11.53
-16		9.94	9.79		8.91	8.28	9.24
-17		9.18	8.91		8.47	7.97	11.59
-18		8.67	6.53		8.02	8.76	9.30
-
-CONCLUSION: Let's not forget that the camera is not good at all at distance estimation. As distance is the only variable in the formula, we shouldn't expect a good results in TTC estimation. I have done a lot in terms of data preprocessing to increase the accuracy:
-* removed keypoint matches that were behind the BB of the preceeding vehicle and filtered them using Z-score algorithm with the euclidean distances between the keypoints;
-* filtered keypoints using Z-score with their coordinates x,y;
-* filtered keypoints with too short distance ratios;
-The results are still not very good. AKAZE detector/descriptor showed the best accuracy overall. We could enhance the accuracy if the vehicle speed was a bit higher or if there were more keypoints detected on the preceding vehicle to increase the accuracy of mean/std calculation.
+Resulting TTC scores for each deteector/descriptor pairs can be found in TTC_spreadsheet.xls file.

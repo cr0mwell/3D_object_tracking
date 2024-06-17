@@ -196,7 +196,6 @@ int main(int argc, char** argv)
     }
 
     /* MAIN LOOP OVER ALL IMAGES */
-
     for (size_t imgIndex = 0; imgIndex <= imgEndIndex - imgStartIndex; imgIndex+=imgStepWidth)
     {
         /* LOAD IMAGE INTO BUFFER */
@@ -338,12 +337,11 @@ int main(int argc, char** argv)
                 descKeypoints<cv::xfeatures2d::SURF>((next(dataBuffer.end(), -1))->keypoints, (next(dataBuffer.end(), -1))->cameraImg, descriptors, "SURF");
                 break;
         }
-
+        
         // Push descriptors for current frame to end of data buffer
         next(dataBuffer.end(), -1)->descriptors = descriptors;
 
         cout << "#6 : EXTRACT DESCRIPTORS done" << endl;
-
 
         if (dataBuffer.size() > 1) // wait until at least two images have been processed
         {
@@ -356,7 +354,7 @@ int main(int argc, char** argv)
             matchDescriptors((next(dataBuffer.end(), -2))->keypoints, (next(dataBuffer.end(), -1))->keypoints,
                              (next(dataBuffer.end(), -2))->descriptors, (next(dataBuffer.end(), -1))->descriptors,
                              matches, descriptorStructType, matcherType, selectorType, crossCheck, k);
-
+            
             // store matches in current data frame
             (next(dataBuffer.end(), -1))->kptMatches = matches;
             
@@ -416,8 +414,7 @@ int main(int argc, char** argv)
                 } // eof TTC computation
             } // eof loop over all BB matches            
         }
-
     } // eof loop over all images
-
+    
     return 0;
 }

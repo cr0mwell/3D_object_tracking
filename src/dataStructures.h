@@ -22,13 +22,25 @@ struct LidarPoint { // single lidar point in space
     double x,y,z,r; // x,y,z in [m], r is point reflectivity
 };
 
-struct StatsLidarPoints { // mean and std for every axis of the vector<cv::KeyPoint>
+struct StatsLidarPoints { // mean, median and std for every axis of the vector<LidarPoint>
     double meanX {0.0};
     double meanY {0.0};
     double meanZ {0.0};
+    double medianX {0.0};
+    double medianY {0.0};
+    double medianZ {0.0};
     double stdX {0.0};
     double stdY {0.0};
     double stdZ {0.0};
+};
+
+struct StatsKeyPoints { // mean, median and std for every axis of the vector<cv::KeyPoint>
+    double meanX {0.0};
+    double meanY {0.0};
+    double medianX {0.0};
+    double medianY {0.0};
+    double stdX {0.0};
+    double stdY {0.0};
 };
 
 struct BoundingBox { // bounding box around a classified object (contains both 2D and 3D data)

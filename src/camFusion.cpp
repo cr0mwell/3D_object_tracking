@@ -118,18 +118,37 @@ void show3DObjects(vector<BoundingBox> &boundingBoxes, cv::Size worldSize, cv::S
 StatsLidarPoints getMeanStd(vector<LidarPoint> &points)
 {
     double meanX {}, meanY {}, meanZ {}, stdX {}, stdY {}, stdZ {};
+    vector<double> xs, ys, zs;
     StatsLidarPoints s;
     
-    // Calculating means
+    // Calculating means & medians
     for (const auto &kpt: points)
     {
         meanX += kpt.x;
         meanY += kpt.y;
         meanZ += kpt.z;
+        xs.push_back(kpt.x);
+        ys.push_back(kpt.y);
+        zs.push_back(kpt.z);
     }
     s.meanX = meanX / points.size();
     s.meanY = meanY / points.size();
     s.meanZ = meanZ / points.size();
+    
+    sort(xs.begin(), xs.end());
+    sort(ys.begin(), ys.end());
+    sort(zs.begin(), zs.end());
+    
+    if (xs.size() % 2 == 0)
+    {
+        s.medianX = (xs[xs.size()/2] + xs[xs.size()/2-1])/2;
+        s.medianY = (ys[ys.size()/2] + ys[ys.size()/2-1])/2;
+        s.medianZ = (zs[zs.size()/2] + zs[zs.size()/2-1])/2;
+    } else {
+        s.medianX = xs[xs.size()/2];
+        s.medianY = ys[ys.size()/2];
+        s.medianZ = zs[zs.size()/2];
+    }
     
     // Calculating stds
     for (const auto &kpt: points)
@@ -146,13 +165,25 @@ StatsLidarPoints getMeanStd(vector<LidarPoint> &points)
 }
 
 
-void getKeypointDistanceStats(vector<cv::DMatch> &kptMatches, vector<cv::KeyPoint> &kptsPrev, vector<cv::KeyPoint> &kptsCurr, float &meanDistance, float &stdDistance)
+void getKeypointDistanceStats(vector<cv::DMatch> &kptMatches, vector<cv::KeyPoint> &kptsPrev, vector<cv::KeyPoint> &kptsCurr, float &meanDistance, float &medianDistance, float &stdDistance)
 {
-    // Calculating distance mean
+    vector<float> distances;
+    float dist {};
+    
+    // Calculating distance mean and median
     for (const auto &m: kptMatches)
-        meanDistance += cv::norm(kptsCurr[m.trainIdx].pt - kptsPrev[m.queryIdx].pt);
+    {
+        dist = cv::norm(kptsCurr[m.trainIdx].pt - kptsPrev[m.queryIdx].pt);
+        meanDistance += dist;
+        distances.push_back(dist);
+    }
     meanDistance /= kptMatches.size();
-    meanDistance = meanDistance / kptMatches.size();
+    
+    sort(distances.begin(), distances.end());
+    if (distances.size() % 2 == 0)
+        medianDistance = (distances[distances.size()/2] + distances[distances.size()/2-1])/2;
+    else
+        medianDistance = distances[distances.size()/2];
     
     // Calculating distance std
     for (const auto &m: kptMatches)
@@ -166,7 +197,7 @@ void clusterKptMatchesWithROI(BoundingBox &boundingBox, vector<cv::KeyPoint> &kp
 {
     // Using z-score outliers filtering
     vector<cv::DMatch*> candidateMatches;
-    float meanDistance {}, stdDistance {};
+    float meanDistance {}, medianDistance {}, stdDistance {}, dist {};
     int prevSize {};
     cv::KeyPoint currKeyPoint, prevKeyPoint;
     
@@ -184,55 +215,85 @@ void clusterKptMatchesWithROI(BoundingBox &boundingBox, vector<cv::KeyPoint> &kp
     {
         prevSize = boundingBox.kptMatches.size();
         meanDistance = 0;
+        medianDistance = 0;
         stdDistance = 0;
-        getKeypointDistanceStats(boundingBox.kptMatches, kptsPrev, kptsCurr, meanDistance, stdDistance);
+        getKeypointDistanceStats(boundingBox.kptMatches, kptsPrev, kptsCurr, meanDistance, medianDistance, stdDistance);
         size_t i = 0;
         while (i < boundingBox.kptMatches.size())
         {   
             currKeyPoint = kptsCurr[boundingBox.kptMatches[i].trainIdx];
             prevKeyPoint = kptsPrev[boundingBox.kptMatches[i].queryIdx];
-            if (cv::norm(currKeyPoint.pt - prevKeyPoint.pt) > meanDistance + 3*stdDistance || cv::norm(currKeyPoint.pt - prevKeyPoint.pt) < meanDistance - 3*stdDistance)
+            dist = cv::norm(currKeyPoint.pt - prevKeyPoint.pt);
+            if (dist > meanDistance + 3*stdDistance || dist < meanDistance - 3*stdDistance ||
+                dist > medianDistance + 3*stdDistance || dist < medianDistance - 3*stdDistance)
                 boundingBox.kptMatches.erase(boundingBox.kptMatches.begin()+i);
             else
                 i++;
         }
     } while (prevSize - boundingBox.kptMatches.size() != 0);
     
-    cout << "Mean distance for the image KeyPoints: " << meanDistance << ", std: " << stdDistance << endl;
+    cout << "Mean distance for the image KeyPoints: " << meanDistance << ", median: " << medianDistance << ", std: " << stdDistance << endl;
     cout << "Filtered KeyPoint matches: " << kptMatches.size() - boundingBox.kptMatches.size() << endl;
 }
 
 
 // computeTTCCamera function's helper
-void processKeyPoints(vector<cv::KeyPoint> &kptsPrev, vector<cv::KeyPoint> &kptsCurr, float &meanX, float &meanY, float &stdX, float &stdY)
+void processKeyPoints(vector<cv::KeyPoint> &kptsPrev, vector<cv::KeyPoint> &kptsCurr, StatsKeyPoints &keypointStats)
 {
+    vector<double> xs, ys;
+    
     for (const auto &kp: kptsPrev)
     {
-        meanX += kp.pt.x;
-        meanY += kp.pt.y;
+        keypointStats.meanX += kp.pt.x;
+        keypointStats.meanY += kp.pt.y;
+        xs.push_back(kp.pt.x);
+        ys.push_back(kp.pt.y);
     }
-    meanX = meanX / kptsPrev.size();
-    meanY = meanY / kptsPrev.size();
+    keypointStats.meanX = keypointStats.meanX / kptsPrev.size();
+    keypointStats.meanY = keypointStats.meanY / kptsPrev.size();
+    
+    sort(xs.begin(), xs.end());
+    sort(ys.begin(), ys.end());
+    
+    if (xs.size() % 2 == 0)
+    {
+        keypointStats.medianX = (xs[xs.size()/2] + xs[xs.size()/2-1])/2;
+        keypointStats.medianY = (ys[ys.size()/2] + ys[ys.size()/2-1])/2;
+    } else {
+        keypointStats.medianX = xs[xs.size()/2];
+        keypointStats.medianY = ys[ys.size()/2];
+    }
     
     // Calculating std for previous keypoints
     for (const auto &kp: kptsPrev)
     {
-        stdX += pow((kp.pt.x - meanX), 2);
-        stdY += pow((kp.pt.y - meanY), 2);
+        keypointStats.stdX += pow((kp.pt.x - keypointStats.meanX), 2);
+        keypointStats.stdY += pow((kp.pt.y - keypointStats.meanY), 2);
     }
-    stdX = sqrt(stdX / kptsPrev.size());
-    stdY = sqrt(stdY / kptsPrev.size());
+    keypointStats.stdX = sqrt(keypointStats.stdX / kptsPrev.size());
+    keypointStats.stdY = sqrt(keypointStats.stdY / kptsPrev.size());
     
+    // Filtering by the median
     size_t i {};
     while (i < kptsPrev.size())
-        if (kptsPrev[i].pt.x > meanX + 3*stdX || kptsPrev[i].pt.x < meanX - 3*stdX ||
-            kptsPrev[i].pt.y > meanY + 3*stdY || kptsPrev[i].pt.y < meanY - 3*stdY)
+        if (kptsPrev[i].pt.x > keypointStats.medianX + 3*keypointStats.stdX || kptsPrev[i].pt.x < keypointStats.medianX - 3*keypointStats.stdX ||
+            kptsPrev[i].pt.y > keypointStats.medianY + 3*keypointStats.stdY || kptsPrev[i].pt.y < keypointStats.medianY - 3*keypointStats.stdY)
         {
             kptsPrev.erase(kptsPrev.begin()+i);
             kptsCurr.erase(kptsCurr.begin()+i);
         } else
             i++;
-
+    
+    // Filtering by the mean
+    i = 0;
+    while (i < kptsPrev.size())
+        if (kptsPrev[i].pt.x > keypointStats.meanX + 3*keypointStats.stdX || kptsPrev[i].pt.x < keypointStats.meanX - 3*keypointStats.stdX ||
+            kptsPrev[i].pt.y > keypointStats.meanY + 3*keypointStats.stdY || kptsPrev[i].pt.y < keypointStats.meanY - 3*keypointStats.stdY)
+        {
+            kptsPrev.erase(kptsPrev.begin()+i);
+            kptsCurr.erase(kptsCurr.begin()+i);
+        } else
+            i++;
 }
 
 
@@ -249,30 +310,35 @@ void computeTTCCamera(vector<cv::KeyPoint> &kptsPrev, vector<cv::KeyPoint> &kpts
     }
     
     // 2. Filtering the outliers using Z-score approach
-    float meanPrevX {}, meanPrevY {}, stdPrevX {}, stdPrevY {},
-          meanCurrX {}, meanCurrY {}, stdCurrX {}, stdCurrY {};
+    StatsKeyPoints prevKeypointStats, currKeypointStats;
     size_t prevSize = prevKeypoints.size();
     
-    // Calculating the mean for previous/current keypoint lists;
-    // Filter keypoints:
+    // Calculating the median, mean and std for previous/current keypoint lists;
+    // Filter keypoints (z-score by median and mean using 3*std distance threshold):
     //  -first iterate over the previous keypoints and remove the outliers from previous AND current keypoint lists;
     //  -next do the same iterating over the current keypoints list;
-    processKeyPoints(prevKeypoints, currKeypoints, meanPrevX, meanPrevY, stdPrevX, stdPrevY);
-    processKeyPoints(currKeypoints, prevKeypoints, meanCurrX, meanCurrY, stdCurrX, stdCurrY);
+    processKeyPoints(prevKeypoints, currKeypoints, prevKeypointStats);
+    processKeyPoints(currKeypoints, prevKeypoints, currKeypointStats);
     
-    cout << "Previous frame keypoint meanX: " << meanPrevX << ", meanY: " << meanPrevY << ", stdX: " << stdPrevX << ", stdY: " << stdPrevY << endl;
-    cout << "Current frame keypoint meanX: " << meanCurrX << ", meanY: " << meanCurrY << ", stdX: " << stdCurrX << ", stdY: " << stdCurrY << endl;
+    cout << "Previous frame keypoint meanX: " << prevKeypointStats.meanX << ", meanY: " << prevKeypointStats.meanY <<
+            ", medianX: " << prevKeypointStats.medianX << ", medianY: " << prevKeypointStats.medianY <<
+            ", stdX: " << prevKeypointStats.stdX << ", stdY: " << prevKeypointStats.stdY << endl;
+    cout << "Current frame keypoint meanX: " << currKeypointStats.meanX << ", meanY: " << currKeypointStats.meanY <<
+            ", medianX: " << currKeypointStats.medianX << ", medianY: " << currKeypointStats.medianY <<
+            ", stdX: " << currKeypointStats.stdX << ", stdY: " << currKeypointStats.stdY << endl;
     cout << "Filtered image keypoint outliers from the previous/current frames: " << prevSize-prevKeypoints.size() << endl;
     
     // 3. Calculating mean of the relative distances ratio distancesCurr/distancesPrev
-    double distancesRatioMean {}, distancePrev {}, distanceCurr {};
+    double distancesRatioMean {1e-9}, distancePrev {}, distanceCurr {};
     float distanceThreshold {20.0};
     size_t total {};
+    //cout << "Distance ratios (in previous and current frames):" << endl;
     for (size_t i=0; i < prevKeypoints.size()-1; i++)
         for (size_t j=i+1; j < prevKeypoints.size(); j++)
         {
             distancePrev = cv::norm(prevKeypoints[i].pt - prevKeypoints[j].pt);
             distanceCurr = cv::norm(currKeypoints[i].pt - currKeypoints[j].pt);
+            //cout << distanceCurr << ":" << distancePrev << ", ";
             
             if (distancePrev > 0 && distanceCurr > distanceThreshold)
             {
@@ -280,6 +346,7 @@ void computeTTCCamera(vector<cv::KeyPoint> &kptsPrev, vector<cv::KeyPoint> &kpts
                 total++;
             }
         }
+    //cout << endl;
     distancesRatioMean /= total;
     
     // 4. Calculating the TTC
@@ -289,6 +356,53 @@ void computeTTCCamera(vector<cv::KeyPoint> &kptsPrev, vector<cv::KeyPoint> &kpts
     
     // 5. (Optional) Updating the image with the matched keypoints
     //cv::drawKeypoints(img, currKeypoints, img, cv::Scalar::all(-1), cv::DrawMatchesFlags::DRAW_RICH_KEYPOINTS);
+}
+
+
+void filterLidarPoints(vector<LidarPoint> &lidarPoints, StatsLidarPoints &stats)
+{
+    stats = getMeanStd(lidarPoints);
+    
+    // Filter by median
+    size_t initialSize, sizeBefore;
+    initialSize = lidarPoints.size();
+    do {
+        sizeBefore = lidarPoints.size();
+        lidarPoints.erase(
+            remove_if(lidarPoints.begin(),
+                      lidarPoints.end(),
+                      [stats](LidarPoint p) {
+                        return (p.x > stats.medianX + 3*stats.stdX || p.x < stats.meanX - 3*stats.stdX ||
+                                p.y > stats.medianY + 3*stats.stdY || p.y < stats.meanY - 3*stats.stdY ||
+                                p.z > stats.medianZ + 3*stats.stdZ || p.z < stats.meanZ - 3*stats.stdZ);
+                        }),
+            lidarPoints.end());
+        
+        // Re-calculating mean and std for the filtered LidarPoints
+        stats = getMeanStd(lidarPoints);
+    
+    } while (sizeBefore - lidarPoints.size() > 0);
+    cout << "Removed LiDAR point outliers by median: " << initialSize - lidarPoints.size() << endl;
+    
+    // Filter by mean
+    initialSize = lidarPoints.size();
+    do {
+        sizeBefore = lidarPoints.size();
+        lidarPoints.erase(
+            remove_if(lidarPoints.begin(),
+                      lidarPoints.end(),
+                      [stats](LidarPoint p) {
+                        return (p.x > stats.meanX + 3*stats.stdX || p.x < stats.meanX - 3*stats.stdX ||
+                                p.y > stats.meanY + 3*stats.stdY || p.y < stats.meanY - 3*stats.stdY ||
+                                p.z > stats.meanZ + 3*stats.stdZ || p.z < stats.meanZ - 3*stats.stdZ);
+                        }),
+            lidarPoints.end());
+        
+        // Re-calculating mean and std for the filtered LidarPoints
+        stats = getMeanStd(lidarPoints);
+    
+    } while (sizeBefore - lidarPoints.size() > 0);
+    cout << "Removed LiDAR point outliers by mean: " << initialSize - lidarPoints.size() << endl;
 }
 
 
@@ -302,46 +416,16 @@ void computeTTCLidar(BoundingBox* BBPrev, BoundingBox* BBCurr, double frameRate,
     unsigned int sizeBefore;
     
     // Filtering lidarPointsPrev
+    StatsLidarPoints statsPrev;
     if (!BBPrev->lidarPointsStats.meanX)
     {
-        // Calculating mean and std for LidarPoints
-        StatsLidarPoints statsPrev = getMeanStd(lidarPointsPrev);
-        auto filterFunction = [statsPrev](LidarPoint p) {
-            return (p.x > statsPrev.meanX + 3*statsPrev.stdX || p.x < statsPrev.meanX - 3*statsPrev.stdX ||
-                    p.y > statsPrev.meanY + 3*statsPrev.stdY || p.y < statsPrev.meanY - 3*statsPrev.stdY ||
-                    p.z > statsPrev.meanZ + 3*statsPrev.stdZ || p.z < statsPrev.meanZ - 3*statsPrev.stdZ);
-            };
-        
-        do {
-            sizeBefore = lidarPointsPrev.size();
-            lidarPointsPrev.erase(remove_if(lidarPointsPrev.begin(), lidarPointsPrev.end(), filterFunction), lidarPointsPrev.end());
-            
-            // Re-calculating mean and std for the filtered LidarPoints
-            statsPrev = getMeanStd(lidarPointsPrev);
-            cout << "Removed LiDAR point outliers: " << sizeBefore - lidarPointsPrev.size() << endl;
-        
-        } while (sizeBefore - lidarPointsPrev.size() > 0);
-        
+        filterLidarPoints(lidarPointsPrev, statsPrev);
         BBPrev->lidarPointsStats = statsPrev;
     }
     
     // Filtering lidarPointsCurr
-    StatsLidarPoints statsCurr = getMeanStd(lidarPointsCurr);
-    auto filterFunction = [statsCurr](LidarPoint p) {
-            return (p.x > statsCurr.meanX + 3*statsCurr.stdX || p.x < statsCurr.meanX - 3*statsCurr.stdX ||
-                    p.y > statsCurr.meanY + 3*statsCurr.stdY || p.y < statsCurr.meanY - 3*statsCurr.stdY ||
-                    p.z > statsCurr.meanZ + 3*statsCurr.stdZ || p.z < statsCurr.meanZ - 3*statsCurr.stdZ);
-            };
-    
-    do {
-        sizeBefore = lidarPointsCurr.size();
-        lidarPointsCurr.erase(remove_if(lidarPointsCurr.begin(), lidarPointsCurr.end(), filterFunction), lidarPointsCurr.end());
-        
-        // Re-calculating mean and std for the filtered LidarPoints
-        statsCurr = getMeanStd(lidarPointsCurr);
-        cout << "Removed LiDAR point outliers: " << sizeBefore - lidarPointsCurr.size() << endl;
-    
-    } while (sizeBefore - lidarPointsCurr.size() > 0);
+    StatsLidarPoints statsCurr;
+    filterLidarPoints(lidarPointsCurr, statsCurr);
     BBCurr->lidarPointsStats = statsCurr;
     
     // Searching for the closest x and y coordinates in lidarPointsPrev and lidarPointsCurr
@@ -371,7 +455,7 @@ void computeTTCLidar(BoundingBox* BBPrev, BoundingBox* BBCurr, double frameRate,
 
 void matchBoundingBoxes(map<int, int> &bbBestMatches, DataFrame &prevFrame, DataFrame &currFrame)
 {
-    map<int, vector<int>> bbMatches;
+    map<int, map<int, int>> bbMatches;
     
     for (auto it=currFrame.kptMatches.begin(); it != currFrame.kptMatches.end(); it++)
     {
@@ -388,24 +472,23 @@ void matchBoundingBoxes(map<int, int> &bbBestMatches, DataFrame &prevFrame, Data
         for (auto it1=currFrame.boundingBoxes.begin(); it1 != currFrame.boundingBoxes.end(); it1++)
             if (it1->roi.contains(currKeyPoint.pt))
                 for (const auto &bb: prevBBs)
-                    bbMatches[bb].push_back(it1->boxID);
+                    if (bbMatches[bb].count(it1->boxID) > 0)
+                        bbMatches[bb][it1->boxID]++;
+                    else
+                        bbMatches[bb][it1->boxID] = 1;
     }
     
     // Defining the best match for each pair <previousBB>-<currentBB>
     for (auto it=bbMatches.begin(); it != bbMatches.end(); it++)
     {
-        unsigned int maxNumber {}, bestMatch {}, occurences {};
+        unsigned int maxNumber {}, bestMatch {};
         
-        set<int> uniqueElements(it->second.begin(), it->second.end());
-        for (const auto &i: uniqueElements)
-        {
-            occurences = count(it->second.begin(), it->second.end(), i);
-            if (occurences > maxNumber)
+        for (auto it2=it->second.begin(); it2 != it->second.end(); it2++)
+            if (it2->second > maxNumber)
             {
-                maxNumber = occurences;
-                bestMatch = i;
+               maxNumber = it2->second;
+               bestMatch = it2->first;
             }
-        }
         bbBestMatches[it->first] = bestMatch;
     }
 }
